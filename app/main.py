@@ -5,10 +5,13 @@ import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.documents import router as documents_router
 from app.config import settings
 from app.database import async_session_maker, engine
 from app.models import ServiceLog
@@ -40,10 +43,12 @@ if not logger.handlers:
 async def lifespan(app: FastAPI):
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
-    logger.info("Application started, database connection verified")
+    app.state.arq_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    logger.info("Application started, database and Redis connections verified")
     yield
+    await app.state.arq_pool.aclose()
     await engine.dispose()
-    logger.info("Database engine disposed")
+    logger.info("Database engine and Redis pool disposed")
 
 
 app = FastAPI(
@@ -51,6 +56,7 @@ app = FastAPI(
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
+app.include_router(documents_router)
 
 
 @app.middleware("http")
