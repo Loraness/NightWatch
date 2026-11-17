@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.documents import router as documents_router
+from app.api.webhooks import router as webhooks_router
 from app.config import settings
 from app.database import async_session_maker, engine
 from app.models import ServiceLog
@@ -57,6 +58,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(documents_router)
+app.include_router(webhooks_router)
 
 
 @app.middleware("http")

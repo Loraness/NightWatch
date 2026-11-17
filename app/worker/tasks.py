@@ -6,7 +6,7 @@ from sqlalchemy import text, update
 
 from app.config import settings
 from app.database import async_session_maker, engine
-from app.models import Document, DocumentChunk
+from app.models import Document, DocumentChunk, Incident
 from app.services.chunker import chunk_markdown
 
 logger = logging.getLogger("nightwatch.worker")
@@ -50,8 +50,27 @@ async def ingest_document_task(ctx: dict, document_id: str) -> str:
             raise
 
 
+async def investigate_incident_task(ctx: dict, incident_id: str) -> str:
+    incident_uuid = uuid.UUID(incident_id)
+    async with async_session_maker() as session:
+        incident = await session.get(Incident, incident_uuid)
+        if incident is None:
+            logger.warning("Incident %s not found", incident_id)
+            return "not_found"
+
+        incident.status = "INVESTIGATING"
+        await session.commit()
+        logger.info(
+            "Queued incident %s (%s: %s) picked up by worker",
+            incident_id,
+            incident.service_name,
+            incident.exception_type,
+        )
+        return "investigating"
+
+
 class WorkerSettings:
-    functions = [ingest_document_task]
+    functions = [ingest_document_task, investigate_incident_task]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
