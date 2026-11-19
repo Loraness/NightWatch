@@ -21,3 +21,7 @@ dist/
 .idea/
 .vscode/
 *.swp
+
+# ML models cache
+models_cache/
+.cache/

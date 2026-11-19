@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 
@@ -8,6 +9,7 @@ from app.config import settings
 from app.database import async_session_maker, engine
 from app.models import Document, DocumentChunk, Incident
 from app.services.chunker import chunk_markdown
+from app.services.embeddings import EmbeddingService, get_embedding_service
 
 logger = logging.getLogger("nightwatch.worker")
 
@@ -15,7 +17,8 @@ logger = logging.getLogger("nightwatch.worker")
 async def startup(ctx: dict) -> None:
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
-    logger.info("ARQ worker started")
+    ctx["embedder"] = await asyncio.to_thread(get_embedding_service)
+    logger.info("ARQ worker started with local embedding model")
 
 
 async def shutdown(ctx: dict) -> None:
@@ -36,9 +39,25 @@ async def ingest_document_task(ctx: dict, document_id: str) -> str:
 
         try:
             chunks = chunk_markdown(doc.raw_content)
-            doc_chunks = [DocumentChunk(document_id=doc.id, chunk_index=c.chunk_index, section_header=c.section_header, content=c.content, embedding=None) for c in chunks]
+            embedder: EmbeddingService = ctx.get("embedder") or await asyncio.to_thread(
+                get_embedding_service
+            )
+            vectors = await embedder.embed_texts([c.content for c in chunks])
+
+            doc_chunks = [
+                DocumentChunk(
+                    document_id=doc.id,
+                    chunk_index=c.chunk_index,
+                    section_header=c.section_header,
+                    content=c.content,
+                    embedding=vec,
+                )
+                for c, vec in zip(chunks, vectors, strict=True)
+            ]
             session.add_all(doc_chunks)
             
+
+
             doc.status = "READY"
             await session.commit()
             return "ready"
