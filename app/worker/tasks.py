@@ -12,11 +12,20 @@ from app.services.chunker import chunk_markdown
 from app.services.embeddings import EmbeddingService, get_embedding_service
 
 logger = logging.getLogger("nightwatch.worker")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    )
+    logger.addHandler(_handler)
 
 
 async def startup(ctx: dict) -> None:
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
+    logger.info("Loading local embedding model...")
     ctx["embedder"] = await asyncio.to_thread(get_embedding_service)
     logger.info("ARQ worker started with local embedding model")
 

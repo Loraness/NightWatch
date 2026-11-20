@@ -39,6 +39,9 @@ def _split_markdown_sections(text: str) -> list[tuple[str | None, str]]:
     if tail:
         sections.append((current_header, tail))
 
+    if not sections and text.strip():
+        sections.append((None, text.strip()))
+
     return sections
 
 
