@@ -10,15 +10,37 @@ from app.config import settings
 
 NUM_ROWS = 100_000
 DIM = 384
+NUM_CLUSTERS = 500
 NUM_QUERIES = 20
 TOP_K = 5
 
 
-def _generate_normalized_vectors(count: int, dim: int, seed: int) -> np.ndarray:
+def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    return matrix / np.maximum(norms, 1e-12)
+
+
+def _generate_clustered_dataset(
+    count: int, dim: int, num_clusters: int, num_queries: int, seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
-    vectors = rng.normal(size=(count, dim)).astype(np.float32)
-    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-    return vectors / norms
+    centroids = _normalize_rows(rng.normal(size=(num_clusters, dim)).astype(np.float32))
+    cluster_ids = rng.integers(0, num_clusters, size=count)
+
+    item_noise_std = np.float32(0.45 / np.sqrt(dim))
+    vectors = centroids[cluster_ids] + rng.normal(
+        scale=item_noise_std, size=(count, dim)
+    ).astype(np.float32)
+    vectors = _normalize_rows(vectors)
+
+    query_indices = rng.choice(count, size=num_queries, replace=False)
+    query_noise_std = np.float32(0.20 / np.sqrt(dim))
+    queries = vectors[query_indices] + rng.normal(
+        scale=query_noise_std, size=(num_queries, dim)
+    ).astype(np.float32)
+    queries = _normalize_rows(queries)
+
+    return vectors, queries
 
 
 def _extract_scan_node(plan: dict) -> str:
@@ -78,9 +100,11 @@ async def run_benchmark() -> None:
     await register_vector(conn)
 
     try:
-        print(f"Generating {NUM_ROWS} normalized {DIM}-dim vectors...")
-        vectors = _generate_normalized_vectors(NUM_ROWS, DIM, seed=42)
-        queries = _generate_normalized_vectors(NUM_QUERIES, DIM, seed=99)
+        await conn.execute("SET maintenance_work_mem = '512MB';")
+        print(f"Generating {NUM_ROWS} clustered {DIM}-dim vectors ({NUM_CLUSTERS} topics)...")
+        vectors, queries = _generate_clustered_dataset(
+            NUM_ROWS, DIM, NUM_CLUSTERS, NUM_QUERIES, seed=42
+        )
 
         await conn.execute("DROP TABLE IF EXISTS benchmark_vectors;")
         await conn.execute(f"CREATE TABLE benchmark_vectors (id INTEGER PRIMARY KEY, embedding vector({DIM}));")
