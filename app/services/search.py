@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DocumentChunk
+from app.services.embeddings import RerankerService
 
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9_]+")
 
@@ -120,3 +121,28 @@ async def hybrid_search(
     vector_results = await vector_search(session, query_vector, limit=candidate_limit)
     fts_results = await fts_search(session, query_text, limit=candidate_limit)
     return reciprocal_rank_fusion(vector_results, fts_results, limit=limit)
+
+
+async def rerank_results(
+    query_text: str,
+    candidates: list[SearchResult],
+    reranker: RerankerService,
+    top_k: int = 5,
+) -> list[SearchResult]:
+    if not candidates:
+        return []
+    
+    scores = await reranker.score_pairs(query_text, [c.content for c in candidates])
+
+    reranked = []
+    for candidate, new_score in zip(candidates, scores, strict=True):
+        new_candidate = SearchResult(
+            chunk_id=candidate.chunk_id,
+            document_id=candidate.document_id,
+            section_header=candidate.section_header,
+            content=candidate.content,
+            score=new_score,
+        )
+        reranked.append(new_candidate)
+    reranked.sort(key=lambda x: x.score, reverse=True)
+    return reranked[:top_k]

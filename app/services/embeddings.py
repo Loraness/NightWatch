@@ -1,9 +1,10 @@
 import asyncio
 from functools import lru_cache
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 DEFAULT_CACHE_DIR = "models_cache"
 
 
@@ -31,3 +32,31 @@ class EmbeddingService:
 @lru_cache(maxsize=1)
 def get_embedding_service() -> EmbeddingService:
     return EmbeddingService()
+
+
+class RerankerService:
+    def __init__(
+        self,
+        model_name: str = DEFAULT_RERANKER_MODEL,
+        cache_dir: str = DEFAULT_CACHE_DIR,
+    ) -> None:
+        self._model = CrossEncoder(
+            model_name,
+            device="cpu",
+            cache_folder=cache_dir,
+        )
+
+    def _predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
+        scores = self._model.predict(pairs)
+        return [float(score) for score in scores]
+
+    async def score_pairs(self, query: str, texts: list[str]) -> list[float]:
+        if not texts:
+            return []
+        pairs = [(query, text) for text in texts]
+        return await asyncio.to_thread(self._predict_sync, pairs)
+
+
+@lru_cache(maxsize=1)
+def get_reranker_service() -> RerankerService:
+    return RerankerService()
