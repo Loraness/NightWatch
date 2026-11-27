@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_RPM_LIMIT: int = 15
+
     @computed_field
     @property
     def async_database_url(self) -> str:
